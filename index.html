@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Where Do I Park? — UMD Parking Helper</title>
+<meta name="description" content="An unofficial tool that recommends where to park at the University of Maryland based on who you are, where you're going, and when.">
+<link rel="preconnect" href="https://unpkg.com" crossorigin>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="wrap">
+    <div class="brand">
+      <span class="brand-mark">P</span>
+      <div>
+        <h1>Where Do I Park?</h1>
+        <p class="tagline">Turtle-tested parking help for the University of Maryland</p>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <p class="disclaimer" role="note">
+    <strong>Unofficial &amp; unaffiliated.</strong> This is a community tool, not a UMD or
+    DOTS product. Always confirm against posted lot signs and the
+    <a href="https://transportation.umd.edu/parking" target="_blank" rel="noopener">official rules</a>.
+    Rules encoded as of <span id="rules-date">August 2026</span>.
+  </p>
+
+  <!-- ================= WIZARD ================= -->
+  <section id="wizard" aria-label="Parking questions">
+    <ol class="steps" id="stepbar">
+      <li data-step="1" class="active">Who</li>
+      <li data-step="2">Permit</li>
+      <li data-step="3">Destination</li>
+      <li data-step="4">When</li>
+    </ol>
+
+    <!-- Step 1: who -->
+    <div class="card step" data-step="1">
+      <h2>Who's parking?</h2>
+      <div class="choice-grid" id="who-choices">
+        <button class="choice" data-value="visitor">
+          <span class="emoji">🚗</span><span class="lbl">Visitor / Guest</span>
+          <span class="sub">No UMD permit</span>
+        </button>
+        <button class="choice" data-value="student">
+          <span class="emoji">🎓</span><span class="lbl">Student</span>
+          <span class="sub">Commuter, resident…</span>
+        </button>
+        <button class="choice" data-value="facstaff">
+          <span class="emoji">💼</span><span class="lbl">Faculty / Staff</span>
+          <span class="sub">Assigned lot + overflow</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Step 2: permit -->
+    <div class="card step hidden" data-step="2">
+      <h2 id="permit-title">Your permit</h2>
+
+      <div id="permit-student" class="permit-block hidden">
+        <label class="field">
+          <span>Permit type</span>
+          <select id="student-permit">
+            <option value="commuter">Commuter (live off campus)</option>
+            <option value="resident">Resident (live on campus)</option>
+            <option value="overnight">Overnight storage</option>
+          </select>
+        </label>
+        <label class="field hidden" id="credit-field">
+          <span>Class standing <em class="hint">(credits earned — sets your lots)</em></span>
+          <select id="student-credit">
+            <option value="0-29">0–29 credits (freshman)</option>
+            <option value="30-59">30–59 credits (sophomore)</option>
+            <option value="60-89">60–89 credits (junior)</option>
+            <option value="90+">90+ credits (senior)</option>
+          </select>
+        </label>
+        <label class="field hidden" id="housing-field">
+          <span>Where do you live?</span>
+          <select id="student-housing">
+            <option value="fratrow">Fraternity Row / Old &amp; New Leonardtown</option>
+            <option value="northhill">North Hill (not Caroline/Wicomico/Carroll)</option>
+            <option value="southcommons">South Campus Commons / South Hill / Caroline / Wicomico / Carroll / Prince Frederick</option>
+            <option value="cambridge">Cambridge / Denton / Ellicott / Pyon-Chen / Johnson-Whittle</option>
+            <option value="graham">Graham (Cracker)</option>
+          </select>
+        </label>
+      </div>
+
+      <div id="permit-facstaff" class="permit-block hidden">
+        <label class="field">
+          <span>Permit type</span>
+          <select id="fs-permit">
+            <option value="annual">Annual (assigned lot + overflow)</option>
+            <option value="parttime">Daily / 2-day / 3-day (overflow only)</option>
+          </select>
+        </label>
+      </div>
+
+      <label class="field hidden" id="primary-lot-field">
+        <span>Your assigned <strong>primary lot</strong> <em class="hint">(from your permit)</em></span>
+        <select id="primary-lot"><option value="">— select your lot —</option></select>
+      </label>
+
+      <p id="portal-note" class="info hidden">
+        🔑 Need to buy, renew, or manage a permit? Head to the
+        <a href="https://umd.aimsparking.com/" target="_blank" rel="noopener">UMD parking portal</a>
+        (login required).
+      </p>
+
+      <p id="visitor-note" class="info hidden">
+        As a visitor you can pay to park in campus garages and many surface lots.
+        No permit selection needed — continue.
+      </p>
+
+      <div class="nav">
+        <button class="btn ghost" data-goto="1">← Back</button>
+        <button class="btn primary" id="to-step3">Next →</button>
+      </div>
+    </div>
+
+    <!-- Step 3: destination -->
+    <div class="card step hidden" data-step="3">
+      <h2>Where are you headed?</h2>
+      <label class="field">
+        <span>Building or destination</span>
+        <input type="text" id="building-search" list="building-list"
+               placeholder="Start typing, e.g. McKeldin Library" autocomplete="off">
+        <datalist id="building-list"></datalist>
+      </label>
+      <p class="info small">Pick the building closest to where you're going.</p>
+      <div class="nav">
+        <button class="btn ghost" data-goto="2">← Back</button>
+        <button class="btn primary" id="to-step4" disabled>Next →</button>
+      </div>
+    </div>
+
+    <!-- Step 4: when -->
+    <div class="card step hidden" data-step="4">
+      <h2>When are you going?</h2>
+      <div class="when-grid">
+        <label class="field">
+          <span>Day</span>
+          <select id="day-select">
+            <option value="weekday">Weekday (Mon–Fri)</option>
+            <option value="weekend">Weekend (Sat–Sun)</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Arrival time</span>
+          <input type="time" id="time-select" value="10:00">
+        </label>
+      </div>
+      <label class="field" id="duration-field">
+        <span>How long? <em class="hint">(for visitor cost)</em></span>
+        <select id="duration-select">
+          <option value="1">1 hour</option>
+          <option value="2">2 hours</option>
+          <option value="3" selected>3 hours</option>
+          <option value="4">4 hours</option>
+          <option value="6">6 hours</option>
+          <option value="9">All day</option>
+        </select>
+      </label>
+      <div class="nav">
+        <button class="btn ghost" data-goto="3">← Back</button>
+        <button class="btn primary" id="get-results">Find parking →</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= RESULTS ================= -->
+  <section id="results" class="hidden" aria-label="Recommendations">
+    <div class="results-head">
+      <h2>Your best bets</h2>
+      <button class="btn ghost" id="start-over">↺ Start over</button>
+    </div>
+    <p id="results-summary" class="summary"></p>
+    <div id="rec-list" class="rec-list"></div>
+    <div id="map" class="map"></div>
+    <div id="results-caveats" class="caveats"></div>
+  </section>
+</main>
+
+<footer class="wrap foot">
+  <p>Built by a fellow Terp. Data from UMD's public GIS &amp; Transportation Services.
+     Not affiliated with the University of Maryland.</p>
+</footer>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="js/app.js"></script>
+</body>
+</html>
