@@ -1,0 +1,13 @@
+[
+  {
+    "id": "intersemester-open-parking-fall2026",
+    "title": "Summer-to-Fall intersemester open parking",
+    "category": "open_parking",
+    "text": "Any vehicle with OR without a current DOTS permit/CLPR may park in Lots 1, 2, 3, 4, 5, 6, 9, 11, 15, 16, 18 and 19 during the intersemester break.",
+    "lots": ["1", "2", "3", "4", "5", "6", "9", "11", "15", "16", "18", "19"],
+    "garages": [],
+    "start": "2026-08-22",
+    "end": "2026-08-30",
+    "url": "https://transportation.umd.edu/"
+  }
+]

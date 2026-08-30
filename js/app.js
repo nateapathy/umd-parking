@@ -44,18 +44,57 @@ function has60plus() {
 
 let BUILDINGS = [];
 let LOTS = [];
+let UPDATES = [];
 let mapObj = null;
+
+// Derived from active DOTS updates vs. today's date (see refreshAlerts).
+let alerts = { active: [], upcoming: [] };
+let liveParking = { openTokens: new Set(), affectedTokens: new Set(), freeAll: false };
 
 /* --------------------------------------------------------- data loading --- */
 async function loadData() {
-  const [b, l] = await Promise.all([
+  const [b, l, u] = await Promise.all([
     fetch('data/buildings.json').then(r => r.json()),
     fetch('data/lots.json').then(r => r.json()),
+    fetch('data/updates.json').then(r => r.json()).catch(() => []),
   ]);
   BUILDINGS = b;
   LOTS = l;
+  UPDATES = u;
+  refreshAlerts();
   populateBuildings();
   populatePrimaryLots();
+}
+
+/* Split the DOTS updates snapshot into active / upcoming relative to today,
+ * and precompute which lots are currently "open to all" or affected. */
+function refreshAlerts() {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const soon = new Date(today); soon.setDate(soon.getDate() + 14);
+  const parse = s => s ? new Date(s + 'T00:00:00') : null;
+
+  alerts = { active: [], upcoming: [] };
+  liveParking = { openTokens: new Set(), affectedTokens: new Set(), freeAll: false };
+
+  for (const u of UPDATES) {
+    const start = parse(u.start), end = parse(u.end);
+    const active = (!start || start <= today) && (!end || end >= today);
+    const upcoming = start && start > today && start <= soon;
+    if (active) alerts.active.push(u);
+    else if (upcoming) alerts.upcoming.push(u);
+    if (!active) continue;
+
+    const toks = [...(u.lots || []), ...(u.garages || [])];
+    if (u.category === 'open_parking') toks.forEach(t => liveParking.openTokens.add(t));
+    if (u.category === 'closure') toks.forEach(t => liveParking.affectedTokens.add(t));
+    if (u.category === 'free') liveParking.freeAll = true;
+  }
+}
+
+function tokenHits(lot, set) {
+  if (!set.size) return false;
+  if (set.has(lot.base)) return true;
+  return (lot.aliases || []).some(a => set.has(a));
 }
 
 function populateBuildings() {
@@ -110,11 +149,24 @@ function evaluateLot(lot, tc) {
   const badges = [];
   const primary = state.primaryLot;
 
+  /* -------- DOTS live "open to all" alert (overrides normal rules) -------- */
+  if (tokenHits(lot, liveParking.openTokens)) {
+    const b = [{ t: 'Open to all right now (DOTS)', c: 'free' }];
+    if (lot.kind === 'garage') b.push({ t: 'Garage', c: 'type' });
+    if (tokenHits(lot, liveParking.affectedTokens))
+      b.push({ t: 'DOTS: spaces affected — check signs', c: 'warn' });
+    return { eligible: true, cost: 0, free: true, badges: b, alert: true,
+      note: 'Temporary open parking — no permit needed here right now.' };
+  }
+
   /* ---------------- VISITOR ---------------- */
   if (state.who === 'visitor') {
     if (!lot.visitor_ok) return null;          // MVP: recommend visitor garages
     let cost, free;
-    if (!tc.visitorEnforced) {                 // free midnight–7am
+    if (liveParking.freeAll) {                 // DOTS holiday free-parking day
+      cost = 0; free = true;
+      badges.push({ t: 'Free today (DOTS holiday)', c: 'free' });
+    } else if (!tc.visitorEnforced) {          // free midnight–7am
       cost = 0; free = true;
       badges.push({ t: 'Free right now (before 7am)', c: 'free' });
     } else {
@@ -208,18 +260,60 @@ function recommend() {
   for (const lot of LOTS) {
     const ev = evaluateLot(lot, tc);
     if (!ev) continue;
+    // Flag lots with an active DOTS closure/impact alert (unless already noted).
+    if (!ev.alert && tokenHits(lot, liveParking.affectedTokens))
+      ev.badges.push({ t: 'DOTS: spaces affected — check signs', c: 'warn' });
     const dist = haversine(b.lat, b.lng, lot.lat, lot.lng);
     scored.push({ lot, ev, dist });
   }
-  scored.sort((a, z) =>
-    (a.ev.cost - z.ev.cost) * 30 + (a.dist - z.dist) // ~30m worth per $1
-  );
-  return scored.slice(0, 3);
+  const cmp = (a, z) => (a.ev.cost - z.ev.cost) * 30 + (a.dist - z.dist); // ~30m per $1
+  scored.sort(cmp);
+
+  // Collapse sub-lots: keep only the nearest entry per base lot (e.g. don't let
+  // 16a/16b/16f take all three slots — they're one lot). Garages are their own base.
+  const seenBase = new Set();
+  const top = [];
+  for (const s of scored) {
+    if (seenBase.has(s.lot.base)) continue;
+    seenBase.add(s.lot.base);
+    top.push(s);
+    if (top.length === 3) break;
+  }
+
+  // If none of the top picks is a garage, offer the closest eligible garage too —
+  // some folks want covered/simple parking (weather, security).
+  let extraGarage = null;
+  if (!top.some(s => s.lot.kind === 'garage')) {
+    extraGarage = scored.find(s => s.lot.kind === 'garage'
+      && !seenBase.has(s.lot.base));
+  }
+  return { top, extraGarage };
 }
 
 /* --------------------------------------------------------- rendering ------ */
+function recCard(r, rankLabel, opts = {}) {
+  const badges = r.ev.badges.map(bd =>
+    `<span class="badge ${bd.c}">${escapeHtml(bd.t)}</span>`).join('');
+  const title = r.lot.kind === 'garage' ? escapeHtml(r.lot.code)
+                                        : 'Lot ' + escapeHtml(r.lot.code);
+  const tag = opts.tag ? `<span class="rec-tag">${escapeHtml(opts.tag)}</span>` : '';
+  return `
+  <div class="rec ${opts.best ? 'best' : ''} ${opts.garage ? 'garage-pick' : ''}">
+    <div class="rank">${rankLabel}</div>
+    <div class="rec-body">
+      <h3>${title} ${tag}</h3>
+      <div class="rec-meta">
+        <span>🚶 <b>${walkMin(r.dist)} min</b> walk (${Math.round(r.dist)} m)</span>
+        <span>${r.ev.cost > 0 ? `💵 <b>$${r.ev.cost}</b>` : '✅ <b>No extra cost</b>'}</span>
+      </div>
+      <div class="rec-note">${escapeHtml(r.ev.note || '')}</div>
+      <div class="badges">${badges}</div>
+    </div>
+  </div>`;
+}
+
 function renderResults() {
-  const recs = recommend();
+  const { top, extraGarage } = recommend();
   const tc = timeContext();
   const list = document.getElementById('rec-list');
   const summary = document.getElementById('results-summary');
@@ -229,38 +323,56 @@ function renderResults() {
     `${whoLabel} • ${state.building.name} • ${state.day === 'weekend' ? 'Weekend' : 'Weekday'} ` +
     `at ${fmtTime(state.time)}`;
 
-  if (!recs.length) {
+  renderAlerts();
+
+  if (!top.length) {
     list.innerHTML = `<div class="card"><p>No clearly-eligible lots found for this
       combination. Your safest option is a visitor garage (pay hourly) or checking the
       <a href="https://transportation.umd.edu/parking" target="_blank" rel="noopener">official rules</a>.</p></div>`;
   } else {
-    list.innerHTML = recs.map((r, i) => {
-      const badges = r.ev.badges.map(bd =>
-        `<span class="badge ${bd.c}">${escapeHtml(bd.t)}</span>`).join('');
-      const title = r.lot.kind === 'garage'
-        ? escapeHtml(r.lot.code)
-        : 'Lot ' + escapeHtml(r.lot.code);
-      return `
-      <div class="rec ${i === 0 ? 'best' : ''}">
-        <div class="rank">${i + 1}</div>
-        <div class="rec-body">
-          <h3>${title}</h3>
-          <div class="rec-meta">
-            <span>🚶 <b>${walkMin(r.dist)} min</b> walk (${Math.round(r.dist)} m)</span>
-            <span>${r.ev.cost > 0 ? `💵 <b>$${r.ev.cost}</b>` : '✅ <b>No extra cost</b>'}</span>
-          </div>
-          <div class="rec-note">${escapeHtml(r.ev.note || '')}</div>
-          <div class="badges">${badges}</div>
-        </div>
-      </div>`;
-    }).join('');
+    let html = top.map((r, i) => recCard(r, String(i + 1), { best: i === 0 })).join('');
+    if (extraGarage)
+      html += recCard(extraGarage, '🅿️', { garage: true, tag: 'Closest garage' });
+    list.innerHTML = html;
   }
 
+  const mapMarkers = extraGarage ? top.concat(extraGarage) : top;
   renderCaveats(tc);
   showEl('results');
   hideEl('wizard');
-  requestAnimationFrame(() => renderMap(recs));
+  requestAnimationFrame(() => renderMap(mapMarkers, !!extraGarage));
   document.getElementById('results').scrollIntoView({ behavior: 'smooth' });
+}
+
+/* Active + upcoming DOTS alerts panel above the recommendations. */
+function renderAlerts() {
+  const box = document.getElementById('results-alerts');
+  if (!box) return;
+  const all = [...alerts.active.map(a => ({ a, live: true })),
+               ...alerts.upcoming.map(a => ({ a, live: false }))];
+  if (!all.length) { box.innerHTML = ''; box.classList.add('hidden'); return; }
+  box.classList.remove('hidden');
+  const rows = all.map(({ a, live }) => `
+    <div class="alert ${live ? 'live' : 'soon'}">
+      <span class="alert-flag">${live ? 'ACTIVE' : 'SOON'}</span>
+      <div>
+        <b>${escapeHtml(a.title)}</b>
+        <span class="alert-when">${escapeHtml(fmtRange(a.start, a.end))}</span>
+        <div class="alert-text">${escapeHtml(a.text)}</div>
+      </div>
+    </div>`).join('');
+  box.innerHTML =
+    `<div class="alerts-head">📣 DOTS parking updates</div>${rows}
+     <a class="alerts-src" href="https://transportation.umd.edu/" target="_blank"
+        rel="noopener">See all DOTS updates ↗</a>`;
+}
+function fmtRange(s, e) {
+  const f = d => new Date(d + 'T00:00:00').toLocaleDateString(undefined,
+    { month: 'short', day: 'numeric' });
+  if (s && e) return `${f(s)} – ${f(e)}`;
+  if (s) return `from ${f(s)}`;
+  if (e) return `through ${f(e)}`;
+  return 'ongoing';
 }
 
 function renderCaveats(tc) {
@@ -296,7 +408,7 @@ function pin(cls, label) {
     `<div class="map-pin ${cls}"><span>${label}</span></div>`,
     iconSize: [26, 26], iconAnchor: [13, 26] });
 }
-function renderMap(recs) {
+function renderMap(recs, hasGarage) {
   const b = state.building;
   if (mapObj) { mapObj.remove(); mapObj = null; }
   mapObj = L.map('map', { scrollWheelZoom: false });
@@ -308,13 +420,18 @@ function renderMap(recs) {
   L.marker([b.lat, b.lng], { icon: pin('dest', '★') })
     .addTo(mapObj).bindPopup(`<b>${escapeHtml(b.name)}</b><br>Your destination`);
 
+  const lastIsGarage = hasGarage;
   recs.forEach((r, i) => {
+    const isExtra = lastIsGarage && i === recs.length - 1;
+    const label = isExtra ? 'P' : String(i + 1);
+    const cls = isExtra ? 'garage' : (i === 0 ? 'best' : '');
     pts.push([r.lot.lat, r.lot.lng]);
-    L.marker([r.lot.lat, r.lot.lng], { icon: pin(i === 0 ? 'best' : '', i + 1) })
+    L.marker([r.lot.lat, r.lot.lng], { icon: pin(cls, label) })
       .addTo(mapObj)
       .bindPopup(`<b>${r.lot.kind === 'garage' ? '' : 'Lot '}${escapeHtml(r.lot.code)}</b><br>${walkMin(r.dist)} min walk`);
     L.polyline([[b.lat, b.lng], [r.lot.lat, r.lot.lng]],
-      { color: i === 0 ? '#ffb300' : '#e21833', weight: 2, dashArray: '4 5', opacity: .7 })
+      { color: isExtra ? '#3b4ba8' : (i === 0 ? '#ffb300' : '#e21833'),
+        weight: 2, dashArray: '4 5', opacity: .7 })
       .addTo(mapObj);
   });
   mapObj.fitBounds(pts, { padding: [40, 40] });

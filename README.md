@@ -33,7 +33,26 @@ Students and faculty/staff also get a pointer to the
 required — the app does not integrate with it).
 
 Ranking factors: walking distance, cost, and whether the lot is legal at your
-chosen day/time.
+chosen day/time. Two refinements keep the three picks useful:
+
+- **Distinct lots.** Sub-lots of the same lot (e.g. 16a / 16b / 16f) are collapsed to
+  one, so the three recommendations are always three *different* lots.
+- **Closest garage.** If all three picks are surface lots, a "Closest garage" option is
+  added for anyone who wants covered/simpler parking (weather, security).
+
+### Live DOTS updates
+
+The app reads `data/updates.json` — a snapshot of the
+[DOTS Updates](https://transportation.umd.edu/) announcements — and, based on **today's
+date**, shows an alerts panel and adjusts recommendations:
+
+- `open_parking` — during the window, the listed lots become available to **everyone**
+  (permit or not); they show up in results flagged "Open to all right now (DOTS)."
+- `closure` — listed lots/garages get a "spaces affected — check signs" warning.
+- `free` — visitor cost drops to $0 with a holiday note.
+- `info` — shown in the alerts panel only.
+
+Past updates auto-hide; upcoming ones (within 14 days) show as "SOON."
 
 ## Project layout
 
@@ -86,6 +105,27 @@ coordinates from UMD's public GIS services:
 cd data
 python3 build_data.py   # standard library only; rewrites buildings.json + lots.json
 ```
+
+**DOTS updates** live in `data/updates.json` and are maintained by hand (the
+announcements are prose on the DOTS site with no clean feed). Each entry is:
+
+```json
+{
+  "id": "unique-slug",
+  "title": "Short headline",
+  "category": "open_parking | closure | free | info",
+  "text": "The announcement text shown to users.",
+  "lots":    ["1", "2", "16"],          // base lot numbers affected
+  "garages": ["Regents Drive Garage"],  // garage names/codes affected
+  "start": "2026-08-22",                 // ISO date, or null for ongoing
+  "end":   "2026-08-30",                 // ISO date, or null
+  "url": "https://transportation.umd.edu/"
+}
+```
+
+Add/remove entries as DOTS posts updates; the app filters by date automatically, so
+it's safe to leave past ones in place (they stop showing) — though pruning keeps the
+file tidy. No rebuild needed; just edit the JSON and push.
 
 Rates and rule text (the `$4/hr`, the after-4pm windows, the overflow lot list)
 are encoded in `js/app.js` and the flags in `build_data.py` — update those if DOTS

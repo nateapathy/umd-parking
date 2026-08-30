@@ -96,12 +96,31 @@ select:focus,input:focus{outline:none;border-color:var(--red);
 .results-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .results-head h2{margin:0;font-size:1.25rem}
 .summary{color:var(--muted);font-size:.92rem;margin:6px 0 16px}
+/* DOTS alerts panel */
+.alerts{margin:0 0 16px;background:#fff;border:1px solid var(--line);
+  border-left:4px solid var(--gold);border-radius:12px;padding:14px 16px;box-shadow:var(--shadow)}
+.alerts-head{font-weight:800;font-size:.95rem;margin-bottom:10px}
+.alert{display:flex;gap:10px;align-items:flex-start;padding:8px 0;
+  border-top:1px solid var(--line)}
+.alert:first-of-type{border-top:none}
+.alert-flag{flex:0 0 auto;font-size:.66rem;font-weight:800;letter-spacing:.03em;
+  padding:3px 7px;border-radius:999px;margin-top:2px}
+.alert.live .alert-flag{background:#e3f6ee;color:var(--ok)}
+.alert.soon .alert-flag{background:#eef2ff;color:#3b4ba8}
+.alert-when{font-size:.78rem;color:var(--muted);margin-left:6px}
+.alert-text{font-size:.86rem;color:var(--ink);margin-top:3px}
+.alerts-src{display:inline-block;margin-top:8px;font-size:.82rem;font-weight:700}
+
 .rec-list{display:grid;gap:12px;margin-bottom:18px}
 .rec{display:flex;gap:14px;background:var(--card);border:1px solid var(--line);
   border-radius:var(--r);padding:16px;box-shadow:var(--shadow);position:relative}
 .rec .rank{flex:0 0 auto;width:34px;height:34px;border-radius:50%;background:var(--red);
   color:#fff;font-weight:800;display:grid;place-items:center}
 .rec.best .rank{background:var(--gold);color:#111}
+.rec.garage-pick{border-style:dashed;border-color:#c3cbe8;background:#fbfcff}
+.rec.garage-pick .rank{background:#3b4ba8;font-size:1rem}
+.rec-tag{font-size:.68rem;font-weight:700;vertical-align:middle;
+  background:#eef2ff;color:#3b4ba8;padding:2px 8px;border-radius:999px;margin-left:6px}
 .rec-body{flex:1;min-width:0}
 .rec-body h3{margin:0 0 3px;font-size:1.05rem}
 .rec-meta{display:flex;flex-wrap:wrap;gap:8px 14px;font-size:.85rem;color:var(--muted);
@@ -125,6 +144,7 @@ select:focus,input:focus{outline:none;border-color:var(--red);
 .map-pin span{transform:rotate(45deg);font-size:.8rem}
 .map-pin.dest{background:#111}
 .map-pin.best{background:var(--gold);color:#111}
+.map-pin.garage{background:#3b4ba8;color:#fff}
 
 .caveats{font-size:.82rem;color:var(--muted);background:#fff;border:1px solid var(--line);
   border-radius:12px;padding:14px 16px}
