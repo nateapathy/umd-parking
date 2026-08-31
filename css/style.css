@@ -158,6 +158,8 @@ select:focus,input:focus{outline:none;border-color:var(--red);
 #portal-note a{color:#2a3f6b;font-weight:700}
 
 .foot{padding:24px 18px 40px;color:var(--muted);font-size:.8rem;text-align:center}
+.foot p{margin:4px 0}
+.foot a{font-weight:700}
 
 @media(max-width:560px){
   .choice-grid{grid-template-columns:1fr}

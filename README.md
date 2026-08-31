@@ -156,3 +156,8 @@ when a new edition drops.
   visitor-open) and notes ParkMobile surface zones.
 - Lots 5 and 7 appear in the regulations' athletic list but aren't in UMD's public GIS
   point layer, so they can't be mapped.
+
+## License
+
+[MIT](LICENSE) © 2026 Nate Apathy. Data belongs to the University of Maryland / DOTS;
+this project is an independent, unaffiliated tool.
